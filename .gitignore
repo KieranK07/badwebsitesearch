@@ -1,0 +1,21 @@
+# Dependencies and build output
+/node_modules
+/.next
+/out
+/build
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets — .env.local holds a live Google Maps API key
+.env
+.env.*
+!.env.example
+
+# Client outreach collateral for a named real business. Deliberately not
+# published: this repo's whole premise is ranking businesses by how bad their
+# website is, so shipping a named teardown/redesign alongside it is not
+# something to do without that company's agreement.
+/jetcoenterprises
+
+# macOS
+.DS_Store
