@@ -1,12 +1,16 @@
 import { Assessment } from "./types";
 
+export const UNVERIFIED_NO_WEBSITE_SCORE = 50;
+
 /**
  * Compute a 0–100 opportunity score: higher = better prospect (worse web presence).
  * Each red flag adds weighted points; Lighthouse (when present) nudges the score.
  */
 export function scoreAssessment(a: Assessment): number {
-  // No website found in either source — strongest signal.
-  if (!a.hasWebsite) return 100;
+  // No website found in either source: strongest signal. OSM-only "no website"
+  // is often just a missing tag, so it ranks below confirmed cases and below
+  // dead or parked sites.
+  if (!a.hasWebsite) return a.unverified ? UNVERIFIED_NO_WEBSITE_SCORE : 100;
 
   let score = 0;
 

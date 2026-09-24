@@ -9,6 +9,7 @@ import { leadsToCsv } from "@/lib/csv";
 export default function Home() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [status, setStatus] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [discovered, setDiscovered] = useState<number | null>(null);
   const leadsRef = useRef<Lead[]>([]);
@@ -18,6 +19,7 @@ export default function Home() {
     setLeads([]);
     leadsRef.current = [];
     setDiscovered(null);
+    setWarnings([]);
     setStatus("Starting…");
 
     try {
@@ -59,6 +61,9 @@ export default function Home() {
         case "status":
           setStatus(e.message);
           break;
+        case "warning":
+          setWarnings((w) => [...w, e.message]);
+          break;
         case "discovered":
           setDiscovered(e.count);
           break;
@@ -67,11 +72,10 @@ export default function Home() {
           setLeads(leadsRef.current);
           break;
         case "done":
-          setStatus(
-            e.total === 0
-              ? "No businesses found in this area."
-              : `Done — ${e.total} prospects assessed.`
-          );
+          // An empty result after a source failure keeps the failure message
+          // from the preceding status event.
+          if (e.total > 0) setStatus(`Done: ${e.total} prospects assessed.`);
+          else if (!e.sourceFailed) setStatus("No businesses found in this area.");
           break;
         case "error":
           setStatus(`Error: ${e.message}`);
@@ -97,10 +101,16 @@ export default function Home() {
     <main>
       <h1>Bad Website Search</h1>
       <p className="subtitle">
-        Find nearby businesses whose websites need work — ranked by opportunity.
+        Find nearby businesses whose websites need work, ranked by opportunity.
       </p>
 
       <SearchForm onSearch={runSearch} busy={busy} />
+
+      {warnings.map((w) => (
+        <div className="warning" key={w}>
+          {w}
+        </div>
+      ))}
 
       <div className="status">
         {status}

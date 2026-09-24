@@ -1,13 +1,18 @@
 import { Business, GeoPoint, SourceResult } from "../types";
-import { fetchWithTimeout, sleep } from "../http";
+import { fetchWithTimeout, normalizeWebsite, sleep } from "../http";
 
-// Public Overpass mirrors, tried in order — the main instance rate-limits (429)
-// and times out (504) under load, so we fail over to alternates.
+// Public Overpass endpoint. The main instance can rate-limit (429) or time out
+// (504) under load, so a failed request is retried once. The kumi.systems and
+// private.coffee mirrors used to be listed here too, but both hang without
+// answering, which added 30 s each to every failed search.
 const ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
 ];
+
+// Client-side timeout per attempt. Matches the server-side [timeout:20] in the
+// query plus a little slack for transfer.
+const REQUEST_TIMEOUT_MS = 22000;
 
 // OSM top-level keys that denote a business/POI worth prospecting.
 const BUSINESS_KEYS = ["shop", "office", "craft", "tourism"];
@@ -43,7 +48,7 @@ interface OverpassElement {
 
 /**
  * Query Overpass for named businesses within `radius` meters of `center`.
- * Free, no API key. Fails over across mirrors; reports an error if all fail.
+ * Free, no API key. Retries once; reports an error if both attempts fail.
  */
 export async function searchOsm(
   center: GeoPoint,
@@ -57,14 +62,14 @@ export async function searchOsm(
     try {
       const res = await fetchWithTimeout(endpoint, {
         method: "POST",
-        timeoutMs: 30000,
+        timeoutMs: REQUEST_TIMEOUT_MS,
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "data=" + encodeURIComponent(query),
       });
       if (!res.ok) {
         lastStatus = `HTTP ${res.status}`;
         console.warn(`Overpass error (${endpoint}):`, res.status);
-        if (i < ENDPOINTS.length - 1) await sleep(500);
+        if (i < ENDPOINTS.length - 1) await sleep(1000);
         continue;
       }
       const data = await res.json();
@@ -76,9 +81,14 @@ export async function searchOsm(
       }
       return { businesses: out };
     } catch (err) {
-      lastStatus = err instanceof Error ? err.message : "request failed";
+      lastStatus =
+        err instanceof Error && err.name === "AbortError"
+          ? `timed out after ${REQUEST_TIMEOUT_MS / 1000} s`
+          : err instanceof Error
+            ? err.message
+            : "request failed";
       console.warn(`Overpass request failed (${endpoint}):`, err);
-      if (i < ENDPOINTS.length - 1) await sleep(500);
+      if (i < ENDPOINTS.length - 1) await sleep(1000);
     }
   }
 
@@ -94,7 +104,7 @@ function buildQuery(center: GeoPoint, radius: number): string {
     ...BUSINESS_KEYS.map((k) => `nwr["name"]["${k}"]${around};`),
     `nwr["name"]["amenity"~"^(${BUSINESS_AMENITIES.join("|")})$"]${around};`,
   ].join("\n  ");
-  return `[out:json][timeout:25];\n(\n  ${blocks}\n);\nout tags center;`;
+  return `[out:json][timeout:20];\n(\n  ${blocks}\n);\nout tags center;`;
 }
 
 function toBusiness(el: OverpassElement): Business | null {
@@ -108,7 +118,7 @@ function toBusiness(el: OverpassElement): Business | null {
   return {
     id: "",
     name,
-    website: tags["website"] || tags["contact:website"] || undefined,
+    website: normalizeWebsite(tags["website"] || tags["contact:website"]),
     phone: tags["phone"] || tags["contact:phone"] || undefined,
     address: buildAddress(tags),
     lat,

@@ -123,6 +123,15 @@ button.ghost {
   min-height: 1.2em;
 }
 
+.warning {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--warm);
+  border-radius: 6px;
+  color: var(--warm);
+  font-size: 0.85rem;
+}
+
 .results-header {
   display: flex;
   justify-content: space-between;
@@ -142,6 +151,11 @@ td {
   padding: 0.6rem 0.7rem;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
+}
+
+/* Long store-locator URLs otherwise push the table past the page width. */
+td a {
+  overflow-wrap: anywhere;
 }
 
 th {

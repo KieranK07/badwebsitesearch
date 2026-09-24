@@ -23,6 +23,11 @@ export interface LighthouseScores {
 
 export interface Assessment {
   hasWebsite: boolean;
+  /**
+   * True when "no website" rests on OSM data alone (no Google key to confirm).
+   * Scored below a confirmed no-website result.
+   */
+  unverified?: boolean;
   reachable?: boolean;
   finalUrl?: string;
   httpStatus?: number;
@@ -67,8 +72,11 @@ export interface SourceResult {
 /** Newline-delimited JSON events streamed from /api/search. */
 export type StreamEvent =
   | { type: "status"; message: string }
+  /** Persistent notice, e.g. a failed source or a missing API key. */
+  | { type: "warning"; message: string }
   | { type: "geocode"; point: GeoPoint }
   | { type: "discovered"; count: number }
   | { type: "lead"; lead: Lead }
-  | { type: "done"; total: number }
+  /** `sourceFailed` is set when an empty result is due to a source error. */
+  | { type: "done"; total: number; sourceFailed?: boolean }
   | { type: "error"; message: string };

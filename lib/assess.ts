@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import { Assessment, Business } from "./types";
-import { fetchWithTimeout } from "./http";
+import { fetchWithTimeout, normalizeWebsite } from "./http";
 import { fetchLighthouse } from "./lighthouse";
 
 const SOCIAL_HOSTS = [
@@ -62,21 +62,32 @@ export async function assess(
   biz: Business,
   runLighthouse: boolean
 ): Promise<Assessment> {
-  if (!biz.website) {
-    return { hasWebsite: false, reasons: ["No website in our data"] };
+  const website = normalizeWebsite(biz.website);
+  if (!website) {
+    // Without a Google key the only evidence is a missing OSM website tag,
+    // which is common even for businesses that do have a site.
+    const verified =
+      biz.sources.includes("google") || !!process.env.GOOGLE_MAPS_API_KEY;
+    return verified
+      ? { hasWebsite: false, reasons: ["No website in our data"] }
+      : {
+          hasWebsite: false,
+          unverified: true,
+          reasons: ["No website tag in OSM (unverified)"],
+        };
   }
 
   const a: Assessment = { hasWebsite: true, reasons: [] };
 
   // Only-social check works even before we fetch.
-  const host = safeHost(biz.website);
+  const host = safeHost(website);
   if (host && SOCIAL_HOSTS.some((s) => host === s || host.endsWith("." + s))) {
     a.onlySocial = true;
     a.reasons.push("Only a social page");
   }
 
   try {
-    const res = await fetchWithTimeout(biz.website, {
+    const res = await fetchWithTimeout(website, {
       timeoutMs: 9000,
       redirect: "follow",
       // Browser-like headers so anti-bot front-ends (Cloudflare/Akamai) don't
@@ -97,7 +108,7 @@ export async function assess(
     }
 
     if (!res.ok) {
-      a.parked = true;
+      a.reachable = false;
       a.reasons.push(`Dead site (HTTP ${res.status})`);
       return await finalizeLighthouse(a, biz, runLighthouse);
     }
@@ -107,8 +118,9 @@ export async function assess(
     const html = await res.text();
     analyzeHtml(html, a);
   } catch (err) {
+    // Unreachable is not the same as parked: DNS failures, timeouts and TLS
+    // errors say nothing about the page content.
     a.reachable = false;
-    a.parked = true;
     a.reasons.push("Dead or unreachable site");
     return await finalizeLighthouse(a, biz, runLighthouse);
   }
@@ -181,8 +193,9 @@ async function finalizeLighthouse(
   biz: Business,
   runLighthouse: boolean
 ): Promise<Assessment> {
-  if (runLighthouse && biz.website && a.reachable) {
-    const scores = await fetchLighthouse(biz.website);
+  const website = normalizeWebsite(biz.website);
+  if (runLighthouse && website && a.reachable) {
+    const scores = await fetchLighthouse(website);
     if (scores) {
       a.lighthouse = scores;
       if (typeof scores.performance === "number" && scores.performance < 50) {

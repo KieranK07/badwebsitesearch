@@ -24,16 +24,32 @@ export async function runSearch(
   const point = await geocode(params.address);
   emit({ type: "geocode", point });
 
-  emit({ type: "status", message: "Finding businesses (Google + OpenStreetMap)…" });
+  const hasGoogleKey = !!process.env.GOOGLE_MAPS_API_KEY;
+  if (!hasGoogleKey) {
+    emit({
+      type: "warning",
+      message:
+        "No GOOGLE_MAPS_API_KEY set: using OpenStreetMap only. A missing OSM " +
+        "website tag is marked unverified and scored 50 instead of 100.",
+    });
+  }
+
+  emit({
+    type: "status",
+    message: hasGoogleKey
+      ? "Finding businesses (Google + OpenStreetMap)…"
+      : "Finding businesses (OpenStreetMap)…",
+  });
   const [googleResult, osmResult] = await Promise.all([
     searchGoogle(point, params.radius),
     searchOsm(point, params.radius),
   ]);
 
   // Surface source failures so an empty page isn't mistaken for "no businesses".
-  for (const err of [googleResult.error, osmResult.error]) {
-    if (err) emit({ type: "status", message: `⚠️ ${err}` });
-  }
+  const errors = [googleResult.error, osmResult.error].filter(
+    (e): e is string => !!e
+  );
+  for (const err of errors) emit({ type: "warning", message: err });
 
   const businesses: Business[] = dedupe([
     ...googleResult.businesses,
@@ -42,14 +58,16 @@ export async function runSearch(
   emit({ type: "discovered", count: businesses.length });
 
   if (businesses.length === 0) {
-    const allFailed = googleResult.error && osmResult.error;
+    // With no key, OSM is the only source, so its failure alone means the
+    // empty result says nothing about the area.
+    const sourceFailed = errors.length > 0;
     emit({
       type: "status",
-      message: allFailed
-        ? "Both data sources failed — try again in a moment."
+      message: sourceFailed
+        ? `No results: ${errors.join("; ")}. Try again in a moment.`
         : "No businesses found in this area.",
     });
-    emit({ type: "done", total: 0 });
+    emit({ type: "done", total: 0, sourceFailed });
     return;
   }
 
