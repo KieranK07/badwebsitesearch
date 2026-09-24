@@ -1,5 +1,7 @@
 # badwebsitesearch
 
+![Results streaming in for a 250 m search around Covent Garden, OSM only](docs/img/results.png)
+
 Type an address and a radius, get back the businesses near it ranked by how bad
 their website is. Built to find web-design leads without buying a list.
 
@@ -7,7 +9,7 @@ their website is. Built to find web-design leads without buying a list.
 
 Cold outreach for web design work is mostly a data problem. You do not want
 "every restaurant in a postcode", you want the handful whose site is a parked
-domain, or a Facebook page, or something last touched in 2011 — because those
+domain, or a Facebook page, or something last touched in 2011, because those
 are the only conversations worth having. Doing that by hand means opening
 several hundred tabs.
 
@@ -27,16 +29,17 @@ address ─► geocode ─┬─► Google Places (New)  ─┐
 **Discover, from two sources in parallel.** Google Places (New) Nearby Search
 gives reliable real website URLs but caps at 20 results per query. Overpass
 gives unlimited coverage for free but its website tags are patchy. Running both
-and merging covers each one's gap. Overpass has three public mirrors tried in
-order, because the main instance rate-limits and times out under load. A source
-that fails emits a warning into the stream rather than silently returning
-nothing — an empty page should never be mistakable for "no businesses here".
+and merging covers each one's gap. Overpass requests go to the main public
+instance with a 22 s timeout and one retry. A source that fails shows as a
+warning banner, and an empty result after a failure names the failed source
+instead of reporting "no businesses here". OSM website tags without a scheme
+(`www.example.com`) get an `https://` prefix before they are fetched.
 
 **Dedupe.** Primary key is the normalized website domain (protocol, `www.`,
 path and query stripped). Businesses with no website fall back to fuzzy name
 matching within 150 m: significant words of the shorter name must be a subset of
 the longer, or Jaccard overlap ≥ 0.6, after dropping generic words like "inc",
-"cafe", "group". There is also a cross-enrich pass — an OSM record for "Chase"
+"cafe", "group". There is also a cross-enrich pass: an OSM record for "Chase"
 with no website adopts the URL from the Google record for "Chase Bank" 40 m
 away, instead of being reported as a business with no site at all. Getting that
 wrong is the most expensive error here, because "no website" is the single
@@ -44,7 +47,8 @@ highest-scoring signal.
 
 **Assess.** One fetch per site, 9 s timeout, browser-like headers. Then:
 
-- parked-domain markers, only-a-social-page, unreachable
+- parked-domain markers, only-a-social-page, unreachable (DNS, TLS or timeout
+  failures count as unreachable, not parked)
 - no HTTPS, no `viewport` meta, missing `<title>` or meta description
 - copyright year well behind the current one
 - dated tech signatures (FrontPage, old jQuery, table-based layout with no
@@ -57,7 +61,9 @@ does not look like a browser, and scoring those as dead put the best-defended
 sites at the top of the list, which is exactly backwards.
 
 **Score.** Weighted flags into 0–100, higher meaning better prospect. No website
-at all short-circuits to 100. Lighthouse, when enabled, contributes a scaled
+at all short-circuits to 100 when Google confirms it. Without a Google key the
+only evidence is a missing OSM `website` tag, which is common for businesses
+that do have a site, so those rows are marked unverified and score 50. Lighthouse, when enabled, contributes a scaled
 nudge rather than dominating.
 
 **Stream.** `POST /api/search` returns newline-delimited JSON, one event per
@@ -69,7 +75,7 @@ CSV.
 
 ```bash
 npm install
-cp .env.example .env.local     # optional — both keys are optional
+cp .env.example .env.local     # optional: both keys are optional
 npm run dev
 # http://localhost:3000
 ```
@@ -88,8 +94,7 @@ Google's terms.
 
 ## Status
 
-Works end to end; I have run it against real areas and got usable lists out of
-it. Limitations worth knowing:
+Works end to end against real areas. Limitations worth knowing:
 
 - **No tests.** `npm run build` and `tsc --noEmit` pass, and that is the whole
   of the automated checking.
